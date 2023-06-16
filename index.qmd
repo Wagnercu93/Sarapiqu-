@@ -1,0 +1,272 @@
+---
+title: "Sarapiqui"
+date: 06/15/2023
+author: "Wagner Chacón Ulate"
+format: 
+ html: 
+  theme: journal 
+  toc: true
+editor: visual
+---
+
+```{r}
+#| label: carga de paquetes
+#| include: true 
+#| echo: false 
+#| warning: false 
+
+library(tidyverse)
+library(DT)
+library(sf)
+library(rgdal)
+library(raster)
+library(terra)
+library(leaflet)
+library(leaflet.extras)
+library(leafem)
+library(viridisLite)
+```
+
+```{r}
+#| label: simplificacion 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+cantones <-
+ st_read(
+    dsn = "cantones_2020_simp_10m.geojson",
+    quiet = TRUE
+  ) |>
+  st_transform(4326) # reproyección a WGS84
+```
+
+```{r}
+#| label: felinos 
+#| include: true
+#| echo: false 
+#| warning: false
+
+felidos <-
+  st_read(
+    "felidos.csv",
+    options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude", # columna de longitud decimal
+      "Y_POSSIBLE_NAMES=decimalLatitude"   # columna de latitud decimal
+    ),
+    quiet = TRUE
+  )
+```
+
+```{r}
+#| label: crtm 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+st_crs(felidos) <- 4326
+```
+
+## Mapa basado en las especies de felidos de Costa Rica: 
+
+Se muestra un mapa general de Costa Rica y la observación de felidos en los cantones. 
+
+
+```{r}
+#| label: colores 1 
+#| include: true 
+#| echo: false 
+#| warning: false 
+
+colores_especies <- colorFactor(
+  palette = viridis(length(unique(felidos$species))), 
+  domain = felidos$species
+)
+```
+
+```{r}
+#| label: mapa general 
+#| include: true 
+#| echo: false 
+#| warning: false 
+
+leaflet() |>
+  setView(
+    lng = -84.19452,
+    lat = 9.572735,
+    zoom = 7
+  ) |>  
+  addTiles(group = "Mapa general (OpenStreetMap)") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales (ESRI World Imagery)"
+  ) |>  
+  addPolygons(
+    data = cantones,
+    color = "black",
+    fillColor = "transparent",
+    stroke = TRUE,
+    weight = 1.5,
+    popup = paste(
+      paste0("<strong>Código del cantón: </strong>", cantones$cod_canton),
+      paste0("<strong>Cantón: </strong>", cantones$canton),
+      sep = '<br/>'
+    ),
+    group = "Cantones"
+  ) |>  
+  addCircleMarkers(
+    data = felidos,
+    stroke = F,
+    radius = 4,
+    fillColor = ~colores_especies(felidos$species),
+    fillOpacity = 1.0,
+    popup = paste(
+      paste0("<strong>Especie: </strong>", felidos$species),
+      paste0("<strong>Localidad: </strong>", felidos$locality),
+      paste0("<strong>Fecha: </strong>", felidos$eventDate),
+      paste0("<strong>Fuente: </strong>", felidos$institutionCode),
+      paste0("<a href='", felidos$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),    
+    group = "Félidos"
+  ) |>
+  addScaleBar(
+    position = "bottomleft", 
+    options = scaleBarOptions(imperial = FALSE)
+  ) |>  
+  addLegend(
+    position = "bottomleft",    
+    pal = colores_especies,
+    values = felidos$species,
+    title = "Especies de félidos",
+    group = "Félidos"    
+  ) |>  
+  addLayersControl(
+    baseGroups = c(
+      "Mapa general (OpenStreetMap)", 
+      "Imágenes satelitales (ESRI World Imagery)"
+    ),
+    overlayGroups = c("Cantones", "Félidos")
+  ) |>
+  addResetMapButton() |>
+  addSearchOSM() |>
+  addMouseCoordinates() |>
+  addMiniMap(position = "bottomright") |>
+  addFullscreenControl()
+```
+
+## Mapa de felidos precentes en el cantón de Sarapiquí: 
+
+```{r}
+#| label: separacion sarapiqui 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+sarapiqui <- filter(cantones, canton == "Sarapiquí")
+```
+
+```{r}
+#| label: felidos dentro del canton 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+felidos_dentro_sarapiqui <-
+  st_filter(
+    x = felidos,
+    y = sarapiqui, 
+    .predicate = st_within
+  )
+```
+
+  ```{r}
+  #| label: 10 km
+  #| include: true
+  #| echo: false 
+  #| warning: false 
+  
+  felidos_10km_sarapiqui <- st_filter(
+  x = felidos, 
+  y = sarapiqui, 
+  .predicate = function(a, b) st_is_within_distance(a, b, 10000)
+)
+```
+
+```{r}
+#| label: mapa 2 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+leaflet() |>
+  addTiles() |>
+  addPolygons(
+    data = sarapiqui,
+    color = "black",
+    fillColor = "transparent",
+    stroke = TRUE,
+    weight = 2.0
+  ) |>
+  addCircleMarkers(
+    data = felidos_dentro_sarapiqui,
+    stroke = F,
+    radius = 4,
+    fillColor = "blue",
+    fillOpacity = 1.0,
+    popup = paste(
+      paste0("<strong>Especie: </strong>", felidos_dentro_sarapiqui$species),
+      paste0("<strong>Localidad: </strong>", felidos_dentro_sarapiqui$locality),
+      paste0("<strong>Fecha: </strong>", felidos_dentro_sarapiqui$eventDate),
+      paste0("<strong>Fuente: </strong>", felidos_dentro_sarapiqui$institutionCode),
+      paste0("<a href='", felidos$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),    
+    group = "Félidos"
+  ) |>  
+  addScaleBar(
+    position = "bottomleft", 
+    options = scaleBarOptions(imperial = FALSE)
+  ) |>
+  addFullscreenControl(position = "topright")
+```
+
+## Mapa de felidos al rededor de 10 km del cantón de Sarapiquí: 
+
+```{r}
+#| label: mapa 10 km 
+#| include: true
+#| echo: false 
+#| warning: false 
+
+leaflet() |>
+  addTiles() |>
+  addPolygons(
+    data = sarapiqui,
+    color = "black",
+    fillColor = "transparent",
+    stroke = TRUE,
+    weight = 2.0
+  ) |>
+  addCircleMarkers(
+    data = felidos_10km_sarapiqui,
+    stroke = F,
+    radius = 4,
+    fillColor = "blue",
+    fillOpacity = 1.0,
+    popup = paste(
+      paste0("<strong>Especie: </strong>", felidos_10km_sarapiqui$species),
+      paste0("<strong>Localidad: </strong>", felidos_10km_sarapiqui$locality),
+      paste0("<strong>Fecha: </strong>", felidos_10km_sarapiqui$eventDate),
+      paste0("<strong>Fuente: </strong>", felidos_10km_sarapiqui$institutionCode),
+      paste0("<a href='", felidos_10km_sarapiqui$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),    
+    group = "Félidos"
+  ) |>  
+  addScaleBar(
+    position = "bottomleft", 
+    options = scaleBarOptions(imperial = FALSE)
+  ) |>
+  addFullscreenControl(position = "topright")
+```
